@@ -1,0 +1,9 @@
+# Local AI workflow scratch files for this repo
+work/
+
+# Local environment secrets
+.env
+
+# Python caches
+__pycache__/
+*.py[cod]
