@@ -40,7 +40,66 @@ class KafkaRuntimeHelperTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 kafka_runtime._bootstrap_servers_from_env()
 
+    def test_offset_and_metadata_prefers_three_arg_signature(self) -> None:
+        calls: list[tuple[int, str, object | None]] = []
+
+        def factory(offset: int, metadata: str, leader_epoch: object | None) -> tuple[int, str]:
+            calls.append((offset, metadata, leader_epoch))
+            return (offset, metadata)
+
+        built = kafka_runtime._offset_and_metadata(factory, 99)
+        self.assertEqual(built, (99, ""))
+        self.assertEqual(calls, [(99, "", -1)])
+
+    def test_offset_and_metadata_falls_back_to_two_arg_signature(self) -> None:
+        calls: list[tuple[int, str]] = []
+
+        def factory(offset: int, metadata: str) -> tuple[int, str]:
+            calls.append((offset, metadata))
+            return (offset, metadata)
+
+        built = kafka_runtime._offset_and_metadata(factory, 42)
+        self.assertEqual(built, (42, ""))
+        self.assertEqual(calls, [(42, "")])
+
+    def test_to_json_compatible_converts_non_json_types(self) -> None:
+        value = {
+            "raw_bytes": b"abc",
+            "nested": {"items": [1, b"\xff", {"ok": True}]},
+            "set_value": {"a", "b"},
+            "object": object(),
+        }
+
+        converted = kafka_runtime._to_json_compatible(value)
+
+        self.assertEqual(converted["raw_bytes"], "abc")
+        self.assertEqual(converted["nested"]["items"][0], 1)
+        self.assertEqual(converted["nested"]["items"][1], "\ufffd")
+        self.assertIsInstance(converted["set_value"], list)
+        self.assertIsInstance(converted["object"], str)
+
+    def test_build_dlq_payload_includes_source_metadata_and_event_id(self) -> None:
+        source_payload = {
+            "event_id": "evt-abc",
+            "notify": {"email": True, "sms": False},
+        }
+
+        dlq_payload = kafka_runtime._build_dlq_payload(
+            source_topic="appointments.created",
+            source_partition=0,
+            source_offset=42,
+            source_payload=source_payload,
+            failure_reason="one_or_more_requested_channels_failed",
+        )
+
+        self.assertEqual(dlq_payload["event_type"], "appointments.created.dlq")
+        self.assertEqual(dlq_payload["failure_reason"], "one_or_more_requested_channels_failed")
+        self.assertEqual(dlq_payload["source"]["topic"], "appointments.created")
+        self.assertEqual(dlq_payload["source"]["partition"], 0)
+        self.assertEqual(dlq_payload["source"]["offset"], 42)
+        self.assertEqual(dlq_payload["source_event_id"], "evt-abc")
+        self.assertIn("failed_at", dlq_payload)
+
 
 if __name__ == "__main__":
     unittest.main()
-

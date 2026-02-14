@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kafka-notifications-lib"
+version = "0.1.0"
+description = "Kafka-backed appointment notification library"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "kafka-python>=2.0.2",
+]
+
+[tool.setuptools.packages.find]
+include = ["notifications*"]
+exclude = ["tests*", "scripts*", "docs*", "work*"]

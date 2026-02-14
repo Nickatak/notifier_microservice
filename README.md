@@ -5,15 +5,25 @@ notifications. The main app publishes appointment events; a notifications
 service consumes them and sends email/SMS. Kafka stays private on the host.
 
 ## Project status
-- Phase: Kafka integration started (producer + email-focused worker added).
+- Phase: Kafka integration started (broker + producer + email-focused worker added).
 - Canonical architecture doc: `docs/ARCHITECTURE.md`
 - Feature scope checklist: `docs/FEATURE_SCOPE.md`
 
-### Future extraction intent
-- After MVP is stable, extract reusable Kafka transport/adapters from this repo
-  into a separate shared Python package (PyPI-style internal package).
-- Keep app-specific business logic in each service repo, and share only generic
-  transport/config/retry/serialization adapter code.
+### Packaging status
+- This repo itself is the reusable library package.
+- The canonical Python package is `notifications` with adapters under
+  `notifications/adapters/`.
+- Distribution path: Git-based package install first, private registry later if
+  needed.
+
+### Reuse via Git install
+Install the package directly from Git (no private PyPI server required):
+
+```bash
+pip install "kafka-notifications-lib @ git+ssh://git@github.com/<org>/<repo>.git@v0.1.0"
+```
+
+Pin to tags or commit SHAs for reproducible builds.
 
 ### Provider rollout notes
 - 2026-02-13: Mailgun email live-send test succeeded.
@@ -26,23 +36,27 @@ service consumes them and sends email/SMS. Kafka stays private on the host.
 
 ## Current implementation
 - Layered module layout in `notifications/`:
-  - `adapters/`
-    - `payload.py`: payload -> event dict normalization
-    - `fake_senders.py`: local sender adapters
-    - `real_senders.py`: Mailgun email + Twilio SMS adapters
-    - `consumer_handler.py`: controller-like message handling + commit decision
   - `domain/`
     - `email.py`: email channel rules
     - `sms.py`: SMS channel rules
   - `application/`
     - `process.py`: orchestration + aggregate success decision
   - `channels.py`: compatibility facade that re-exports the public functions
+- `notifications/adapters/`:
+  - reusable adapter modules (`payload`, `consumer_handler`, `kafka_runtime`,
+    `real_senders`, `fake_senders`).
 - `scripts/run_channel_demo.py` for local behavior checks without Kafka.
 - `scripts/run_consumer_flow_demo.py` for Kafka-like record handling without Kafka.
 - `scripts/publish_appointment_event.py` to publish a test
   `appointments.created` event to Kafka.
 - `scripts/run_kafka_email_worker.py` to consume Kafka events and send email via
   Mailgun.
+- `Dockerfile.worker` to package the Kafka email worker as a container image.
+- `docker-compose.yml` to orchestrate broker, topic init, and worker services.
+- `scripts/kafka_local_up.sh` to start a local Kafka broker and ensure topic
+  creation.
+- `scripts/kafka_local_down.sh` to stop/remove the local broker container.
+- `scripts/kafka_local_status.sh` to inspect broker container status and topic list.
 - `tests/test_channels.py` for channel/dispatch unit coverage.
 - `tests/test_consumer_handler.py` for commit/no-commit handler behavior.
 - `tests/test_real_senders.py` for Mailgun/Twilio adapter behavior.
@@ -56,6 +70,12 @@ service consumes them and sends email/SMS. Kafka stays private on the host.
   - `python3 scripts/run_kafka_email_worker.py`
 - Publish Kafka test event:
   - `python3 scripts/publish_appointment_event.py --email you@example.com`
+- Start local Kafka broker:
+  - `bash scripts/kafka_local_up.sh`
+- Check local Kafka status:
+  - `bash scripts/kafka_local_status.sh`
+- Stop local Kafka broker:
+  - `bash scripts/kafka_local_down.sh`
 - Run tests:
   - `python3 -m unittest discover -s tests -p 'test_*.py'`
 
@@ -91,23 +111,64 @@ Required env vars for Kafka:
 
 Optional Kafka env vars:
 - `KAFKA_TOPIC_APPOINTMENTS_CREATED` (default: `appointments.created`)
+- `KAFKA_TOPIC_APPOINTMENTS_CREATED_DLQ` (default: `appointments.created.dlq`)
 - `KAFKA_GROUP_ID` (default: `notifications-email-worker`)
 - `KAFKA_AUTO_OFFSET_RESET` (default: `earliest`)
 - `KAFKA_POLL_TIMEOUT_SECONDS` (default: `1.0`)
 - `KAFKA_MAX_RECORDS_PER_POLL` (default: `50`)
 - `KAFKA_SEND_TIMEOUT_SECONDS` (default: `10`)
 - `KAFKA_PRODUCER_ACKS` (default: `all`)
+- `KAFKA_DLQ_ENABLED` (default: `true`)
+- `KAFKA_DLQ_SEND_TIMEOUT_SECONDS` (default: `10`)
 - `KAFKA_EMAIL_WORKER_FORCE_SMS_DISABLED` (default: `true`)
 
 ### Kafka quick start (email-first)
-1. Start your Kafka broker and ensure `KAFKA_BOOTSTRAP_SERVERS` points to it.
-2. Start the worker:
+1. Start a broker.
+   - Docker script (works with plain `docker`):
+     - `bash scripts/kafka_local_up.sh`
+   - Compose option (if `docker compose` is available):
+     - `docker compose up -d kafka kafka-init`
+2. Ensure `.env` contains `KAFKA_BOOTSTRAP_SERVERS=localhost:9092`.
+3. Start the worker:
    - `python3 scripts/run_kafka_email_worker.py`
-3. Publish a test event from another shell:
+4. Publish a test event from another shell:
    - `python3 scripts/publish_appointment_event.py --email nickle87@gmail.com`
+5. Optional status/teardown:
+   - `bash scripts/kafka_local_status.sh`
+   - `bash scripts/kafka_local_down.sh`
 
 For now, the email worker forces `notify.sms=false` by default so you can keep
 shipping email while Twilio toll-free verification is pending.
+
+### Docker moving parts
+1. `kafka` service:
+   - Runs Apache Kafka broker in a container.
+   - Exposes `9092` to your host.
+2. `kafka-init` service:
+   - One-shot container that creates `appointments.created` and
+     `appointments.created.dlq` if missing.
+   - Exits after topic setup.
+3. `worker` service:
+   - Built from `Dockerfile.worker`.
+   - Runs `python3 scripts/run_kafka_email_worker.py`.
+   - Uses `KAFKA_BOOTSTRAP_SERVERS=kafka:19092` because container-to-container
+     traffic uses service names, not `localhost`.
+   - On processing failure, publishes a DLQ envelope and commits source offset
+     after DLQ publish succeeds.
+4. Host publisher script:
+   - `scripts/publish_appointment_event.py` usually runs on host and talks to
+     `localhost:9092`.
+
+### Compose run path
+If `docker compose` is available on your machine:
+1. Bring up broker + topic init + worker:
+   - `docker compose up -d kafka kafka-init worker`
+2. Publish from host:
+   - `python3 scripts/publish_appointment_event.py --email nickle87@gmail.com`
+3. See worker logs:
+   - `docker logs -f notifications-email-worker`
+4. Tear down:
+   - `docker compose down`
 
 Example (swap console senders for real adapters in handler call):
 ```python

@@ -8,6 +8,7 @@ Mental model refresher:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import json
 import os
 from typing import Any, Mapping
@@ -53,13 +54,21 @@ def run_email_worker_forever() -> int:
     - By default, this worker forces `notify.sms=false` while toll-free SMS
       verification is pending.
     """
-    KafkaConsumer, _KafkaProducer, TopicPartition, OffsetAndMetadata = _import_kafka_python()
+    KafkaConsumer, KafkaProducer, TopicPartition, OffsetAndMetadata = _import_kafka_python()
     bootstrap_servers = _bootstrap_servers_from_env()
     topic_name = os.getenv("KAFKA_TOPIC_APPOINTMENTS_CREATED", "appointments.created")
+    dlq_enabled = _env_bool("KAFKA_DLQ_ENABLED", default=True)
+    dlq_topic = os.getenv("KAFKA_TOPIC_APPOINTMENTS_CREATED_DLQ", f"{topic_name}.dlq")
     group_id = os.getenv("KAFKA_GROUP_ID", "notifications-email-worker")
     auto_offset_reset = os.getenv("KAFKA_AUTO_OFFSET_RESET", "earliest")
     poll_timeout_ms = _poll_timeout_ms_from_env()
     max_records = int(os.getenv("KAFKA_MAX_RECORDS_PER_POLL", "50"))
+    dlq_send_timeout_seconds = float(
+        os.getenv(
+            "KAFKA_DLQ_SEND_TIMEOUT_SECONDS",
+            os.getenv("KAFKA_SEND_TIMEOUT_SECONDS", "10"),
+        )
+    )
     force_sms_disabled = _env_bool("KAFKA_EMAIL_WORKER_FORCE_SMS_DISABLED", default=True)
 
     consumer = KafkaConsumer(
@@ -69,9 +78,19 @@ def run_email_worker_forever() -> int:
         enable_auto_commit=False,
         auto_offset_reset=auto_offset_reset,
     )
+    dlq_producer = (
+        KafkaProducer(
+            bootstrap_servers=bootstrap_servers,
+            value_serializer=_serialize_json_object,
+            acks=os.getenv("KAFKA_PRODUCER_ACKS", "all"),
+        )
+        if dlq_enabled
+        else None
+    )
     print(
         f"[WORKER START] topic={topic_name} group_id={group_id} "
-        f"force_sms_disabled={force_sms_disabled}"
+        f"force_sms_disabled={force_sms_disabled} "
+        f"dlq_enabled={dlq_enabled} dlq_topic={dlq_topic}"
     )
 
     try:
@@ -86,13 +105,61 @@ def run_email_worker_forever() -> int:
                     message_partition = int(message.partition)
                     message_offset = int(message.offset)
 
+                    def commit_current_offset() -> None:
+                        offsets = {
+                            TopicPartition(message_topic, message_partition): _offset_and_metadata(
+                                OffsetAndMetadata, message_offset + 1
+                            )
+                        }
+                        consumer.commit(offsets=offsets)
+                        print(
+                            "[COMMIT] "
+                            f"topic={message_topic} partition={message_partition} "
+                            f"offset={message_offset}"
+                        )
+
+                    def publish_to_dlq(*, reason: str, source_payload: Any) -> bool:
+                        if dlq_producer is None:
+                            return False
+
+                        dlq_payload = _build_dlq_payload(
+                            source_topic=message_topic,
+                            source_partition=message_partition,
+                            source_offset=message_offset,
+                            source_payload=source_payload,
+                            failure_reason=reason,
+                        )
+                        try:
+                            future = dlq_producer.send(dlq_topic, value=dlq_payload)
+                            metadata = future.get(timeout=dlq_send_timeout_seconds)
+                        except Exception as exc:
+                            print(
+                                "[DLQ ERROR] "
+                                f"source_topic={message_topic} source_partition={message_partition} "
+                                f"source_offset={message_offset} reason={reason} error={exc}"
+                            )
+                            return False
+
+                        print(
+                            "[DLQ] "
+                            f"source_topic={message_topic} source_partition={message_partition} "
+                            f"source_offset={message_offset} dlq_topic={metadata.topic} "
+                            f"dlq_partition={metadata.partition} dlq_offset={metadata.offset} "
+                            f"reason={reason}"
+                        )
+                        return True
+
                     try:
                         payload = _deserialize_json_object(message.value)
                     except Exception as exc:
-                        print(
-                            f"[NO-COMMIT] topic={message_topic} partition={message_partition} "
-                            f"offset={message_offset} reason=decode_failed: {exc}"
-                        )
+                        reason = f"decode_failed: {exc}"
+                        if publish_to_dlq(reason=reason, source_payload=message.value):
+                            commit_current_offset()
+                        else:
+                            print(
+                                f"[NO-COMMIT] topic={message_topic} partition={message_partition} "
+                                f"offset={message_offset} reason={reason}"
+                            )
                         continue
 
                     if force_sms_disabled:
@@ -107,31 +174,22 @@ def run_email_worker_forever() -> int:
 
                     def commit_callback(
                         _record: Mapping[str, Any],
-                        *,
-                        _topic: str = message_topic,
-                        _partition: int = message_partition,
-                        _offset: int = message_offset,
                     ) -> None:
-                        offsets = {
-                            TopicPartition(_topic, _partition): OffsetAndMetadata(_offset + 1, "")
-                        }
-                        consumer.commit(offsets=offsets)
-                        print(
-                            f"[COMMIT] topic={_topic} partition={_partition} offset={_offset}"
-                        )
+                        _ = _record
+                        commit_current_offset()
 
                     def reject_callback(
                         _record: Mapping[str, Any],
                         reason: str,
-                        *,
-                        _topic: str = message_topic,
-                        _partition: int = message_partition,
-                        _offset: int = message_offset,
                     ) -> None:
-                        print(
-                            f"[NO-COMMIT] topic={_topic} partition={_partition} "
-                            f"offset={_offset} reason={reason}"
-                        )
+                        source_payload = _record.get("value")
+                        if publish_to_dlq(reason=reason, source_payload=source_payload):
+                            commit_current_offset()
+                        else:
+                            print(
+                                f"[NO-COMMIT] topic={message_topic} partition={message_partition} "
+                                f"offset={message_offset} reason={reason}"
+                            )
 
                     result = handle_message(
                         internal_record,
@@ -156,6 +214,15 @@ def run_email_worker_forever() -> int:
             consumer.close()
         except Exception:
             pass
+        if dlq_producer is not None:
+            try:
+                dlq_producer.flush(timeout=dlq_send_timeout_seconds)
+            except Exception:
+                pass
+            try:
+                dlq_producer.close()
+            except Exception:
+                pass
 
 
 def _import_kafka_python() -> tuple[Any, Any, Any, Any]:
@@ -222,6 +289,46 @@ def _with_sms_disabled(payload: Mapping[str, Any]) -> dict[str, Any]:
     return payload_copy
 
 
+def _build_dlq_payload(
+    *,
+    source_topic: str,
+    source_partition: int,
+    source_offset: int,
+    source_payload: Any,
+    failure_reason: str,
+) -> dict[str, Any]:
+    payload = {
+        "event_type": f"{source_topic}.dlq",
+        "failed_at": datetime.now(tz=UTC).isoformat(),
+        "failure_reason": failure_reason,
+        "source": {
+            "topic": source_topic,
+            "partition": source_partition,
+            "offset": source_offset,
+        },
+        "payload": _to_json_compatible(source_payload),
+    }
+
+    if isinstance(source_payload, Mapping):
+        event_id = source_payload.get("event_id")
+        if isinstance(event_id, str) and event_id.strip():
+            payload["source_event_id"] = event_id.strip()
+
+    return payload
+
+
+def _to_json_compatible(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, Mapping):
+        return {str(key): _to_json_compatible(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_json_compatible(item) for item in value]
+    return repr(value)
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -238,3 +345,14 @@ def _send_sms_noop(*, to_phone_e164: str, message: str) -> None:
     """No-op SMS sender used while SMS delivery is temporarily disabled."""
     _ = (to_phone_e164, message)
     return None
+
+
+def _offset_and_metadata(offset_and_metadata_type: Any, offset: int) -> Any:
+    """Build kafka-python OffsetAndMetadata across version signatures."""
+    try:
+        return offset_and_metadata_type(offset, "", -1)
+    except TypeError:
+        try:
+            return offset_and_metadata_type(offset, "", None)
+        except TypeError:
+            return offset_and_metadata_type(offset, "")

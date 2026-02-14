@@ -27,14 +27,17 @@ MVP feature boundary: `docs/FEATURE_SCOPE.md`.
 - `Django API`: appointment validation, DB write, event publish.
 - `Postgres`: source of truth for appointments.
 - `Kafka Broker`: durable event log for decoupling and replay.
-- `Notifications Service`: consume, send requested channels, commit on success.
+- `Notifications Service`: consume, send requested channels, and route persistent
+  failures to DLQ before committing source offset.
 - `Email Provider`: external email delivery service.
 - `SMS Provider`: external SMS delivery service.
 
 ## Kafka topology (v1)
 - Mode: KRaft (no ZooKeeper).
 - Broker count: 1.
-- Topic: `appointments.created`.
+- Topics:
+  - `appointments.created` (primary stream)
+  - `appointments.created.dlq` (failed-processing records)
 - Partitions: 1 (simple ordering and minimal ops overhead for v1).
 - Replication factor: 1 (single-server constraint).
 - Retention: 7 days (can be tuned later).
@@ -72,8 +75,10 @@ Contract rules:
 ## Delivery and processing semantics
 - Delivery model: at-least-once.
 - Producer ack level: wait for broker ack before treating publish as success.
-- Consumer commit strategy: commit offset only after all requested channel sends
-  succeed for that event.
+- Consumer commit strategy:
+  - commit offset after all requested channel sends succeed, or
+  - on non-recoverable processing failure, publish to DLQ then commit source
+    offset to keep the main stream moving.
 - Retry behavior: retry transient provider failures before giving up processing.
 
 ## Idempotency strategy
@@ -82,8 +87,8 @@ Contract rules:
 
 ## Failure model (v1)
 - If consumer crashes before commit, Kafka re-delivers on restart.
-- If either provider is down for a requested channel, consumer retries and does
-  not commit until requested channel delivery succeeds.
+- If a record keeps failing (poison-pill behavior), publish a failure envelope to
+  `appointments.created.dlq` and commit source offset to avoid partition stalls.
 - If Django writes DB row but publish fails, record this in logs and return an
   application error; outbox pattern is a future hardening step.
 
@@ -112,7 +117,8 @@ Contract rules:
 3. Consumer path
    - Add notifications worker consuming `appointments.created`.
    - Send requested channel(s) from `notify` flags.
-   - Commit offsets only after all requested channels succeed.
+   - Commit offsets after success, or after DLQ publish for non-recoverable
+     failures.
 4. Hardening
    - Add retries, idempotency guard, and better metrics/logging.
    - Evaluate outbox pattern if DB/event atomicity risk is unacceptable.
