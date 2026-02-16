@@ -5,7 +5,7 @@ CONTAINER_NAME="${KAFKA_CONTAINER_NAME:-kafka-local}"
 IMAGE="${KAFKA_IMAGE:-apache/kafka:3.9.0}"
 TOPIC="${KAFKA_TOPIC_APPOINTMENTS_CREATED:-appointments.created}"
 DLQ_TOPIC="${KAFKA_TOPIC_APPOINTMENTS_CREATED_DLQ:-${TOPIC}.dlq}"
-HOST_PORT="${KAFKA_PORT:-9094}"
+HOST_PORT="${KAFKA_PORT:-9092}"
 
 if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
   echo "[INFO] Kafka container already running: ${CONTAINER_NAME}"
