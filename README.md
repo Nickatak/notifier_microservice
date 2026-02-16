@@ -4,6 +4,13 @@ This project documents a simple, single-server Kafka setup for decoupled
 notifications. The main app publishes appointment events; a notifications
 service consumes them and sends email/SMS. Kafka stays private on the host.
 
+## Portfolio Stack Description
+
+Canonical system-wide architecture decisions and rationale live in the
+`portfolio` repo:
+
+`../portfolio/docs/architecture/repository-structure.md`
+
 ## Project status
 - Phase: Kafka integration started (broker + producer + email-focused worker added).
 - Canonical architecture doc: `docs/ARCHITECTURE.md`
@@ -107,7 +114,7 @@ Optional Twilio env vars:
 - `TWILIO_TIMEOUT_SECONDS` (default: `10`)
 
 Required env vars for Kafka:
-- `KAFKA_BOOTSTRAP_SERVERS` (example: `localhost:9092`)
+- `KAFKA_BOOTSTRAP_SERVERS` (example: `localhost:9094`)
 
 Optional Kafka env vars:
 - `KAFKA_TOPIC_APPOINTMENTS_CREATED` (default: `appointments.created`)
@@ -128,7 +135,7 @@ Optional Kafka env vars:
      - `bash scripts/kafka_local_up.sh`
    - Compose option (if `docker compose` is available):
      - `docker compose up -d kafka kafka-init`
-2. Ensure `.env` contains `KAFKA_BOOTSTRAP_SERVERS=localhost:9092`.
+2. Ensure `.env` contains `KAFKA_BOOTSTRAP_SERVERS=localhost:9094`.
 3. Start the worker:
    - `python3 scripts/run_kafka_email_worker.py`
 4. Publish a test event from another shell:
@@ -143,7 +150,7 @@ shipping email while Twilio toll-free verification is pending.
 ### Docker moving parts
 1. `kafka` service:
    - Runs Apache Kafka broker in a container.
-   - Exposes `9092` to your host.
+   - Exposes `9094` to your host.
 2. `kafka-init` service:
    - One-shot container that creates `appointments.created` and
      `appointments.created.dlq` if missing.
@@ -157,7 +164,7 @@ shipping email while Twilio toll-free verification is pending.
      after DLQ publish succeeds.
 4. Host publisher script:
    - `scripts/publish_appointment_event.py` usually runs on host and talks to
-     `localhost:9092`.
+     `localhost:9094`.
 
 ### Compose run path
 If `docker compose` is available on your machine:

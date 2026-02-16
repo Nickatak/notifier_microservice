@@ -1,3 +1,5 @@
+name: notifier_service
+
 services:
   kafka-volume-perms:
     image: alpine:3.21
@@ -18,7 +20,7 @@ services:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: EXTERNAL://0.0.0.0:9092,INTERNAL://0.0.0.0:19092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:9092,INTERNAL://kafka:19092,CONTROLLER://kafka:9093
+      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:9094,INTERNAL://kafka:19092,CONTROLLER://kafka:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
@@ -28,7 +30,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     ports:
-      - "9092:9092"
+      - "9094:9092"
     volumes:
       - kafka_data:/tmp/kraft-combined-logs
     healthcheck:
@@ -86,13 +88,13 @@ services:
       - kafka
       - kafka-init
     env_file:
-      - .env
+      - ${NOTIFIER_ENV_FILE:-.env}
     environment:
       # Inside compose network, kafka is reachable by service name.
-      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
-      KAFKA_TOPIC_APPOINTMENTS_CREATED: appointments.created
-      KAFKA_TOPIC_APPOINTMENTS_CREATED_DLQ: appointments.created.dlq
-      KAFKA_DLQ_ENABLED: "true"
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:19092}
+      KAFKA_TOPIC_APPOINTMENTS_CREATED: ${KAFKA_TOPIC_APPOINTMENTS_CREATED:-appointments.created}
+      KAFKA_TOPIC_APPOINTMENTS_CREATED_DLQ: ${KAFKA_TOPIC_APPOINTMENTS_CREATED_DLQ:-appointments.created.dlq}
+      KAFKA_DLQ_ENABLED: ${KAFKA_DLQ_ENABLED:-true}
     restart: unless-stopped
 
 volumes:
