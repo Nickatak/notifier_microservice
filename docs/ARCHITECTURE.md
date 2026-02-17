@@ -66,7 +66,8 @@ JSON payload shape:
 
 Contract rules:
 - `event_id` is unique per emitted event.
-- At least one channel flag must be true: `notify.email` or `notify.sms`.
+- Channel flags indicate requested delivery. Both may be false when no
+  notification should be sent.
 - `appointment.appointment_id` is required and stable.
 - `appointment.email` is required when `notify.email=true`.
 - `appointment.phone_e164` is required when `notify.sms=true`.
