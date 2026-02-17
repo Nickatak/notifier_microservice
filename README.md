@@ -9,7 +9,7 @@ service consumes them and sends email/SMS. Kafka stays private on the host.
 Canonical system-wide architecture decisions and rationale live in the
 `portfolio` repo:
 
-`../portfolio/docs/architecture/repository-structure.md`
+`../portfolio-frontend/docs/architecture/repository-structure.md`
 
 ## Project status
 - Phase: Kafka integration started (broker + producer + email-focused worker added).
