@@ -95,6 +95,9 @@ Quick setup:
 - Fill real credentials in `.env`
 - Install Python deps: `pip install -r requirements.txt`
 
+Note: when running the worker in Docker Compose, set
+`KAFKA_BOOTSTRAP_SERVERS=kafka:19092`.
+
 Required env vars for Mailgun:
 - `MAILGUN_API_KEY`
 - `MAILGUN_DOMAIN`
