@@ -106,6 +106,7 @@ Required env vars for Mailgun:
 Optional Mailgun env vars:
 - `MAILGUN_API_BASE_URL` (default: `https://api.mailgun.net`)
 - `MAILGUN_TIMEOUT_SECONDS` (default: `10`)
+- `NOTIFICATIONS_OWNER_EMAIL` (optional override: force all appointment emails to one inbox)
 
 Required env vars for Twilio:
 - `TWILIO_ACCOUNT_SID`

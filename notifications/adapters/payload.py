@@ -11,6 +11,7 @@ Mental model refresher:
 from __future__ import annotations
 
 from typing import Any
+import os
 
 from ..types import Event, EventDict
 
@@ -22,6 +23,8 @@ def parse_event_payload(payload: Event) -> EventDict:
     """
     appointment = payload.get("appointment", {}) or {}
     notify = payload.get("notify", {}) or {}
+    owner_email = _as_optional_str(os.getenv("NOTIFICATIONS_OWNER_EMAIL"))
+    contact_email = _as_optional_str(appointment.get("email"))
 
     return {
         "event_id": _as_required_str(payload.get("event_id"), "event_id"),
@@ -30,7 +33,8 @@ def parse_event_payload(payload: Event) -> EventDict:
         ),
         "user_id": str(appointment.get("user_id", "")),
         "appointment_time": str(appointment.get("time", "")),
-        "email": _as_optional_str(appointment.get("email")),
+        "email": contact_email,
+        "notification_email": owner_email,
         "phone_e164": _as_optional_str(appointment.get("phone_e164")),
         "notify_email": bool(notify.get("email", False)),
         "notify_sms": bool(notify.get("sms", False)),
