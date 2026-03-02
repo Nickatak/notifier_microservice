@@ -27,23 +27,36 @@ def make_event(**overrides: object) -> dict[str, object]:
 class ChannelFunctionTests(unittest.TestCase):
     def test_send_email_notification_success(self) -> None:
         event = make_event(notify_sms=False)
-        sent: list[dict[str, str]] = []
+        sent: list[dict[str, object]] = []
 
-        def fake_send_email(*, to_email: str, subject: str, body: str) -> None:
-            sent.append({"to_email": to_email, "subject": subject, "body": body})
+        def fake_send_email(
+            *, to_email: str, subject: str, body: str, html: str | None = None
+        ) -> None:
+            sent.append(
+                {"to_email": to_email, "subject": subject, "body": body, "html": html}
+            )
 
         result = send_email_notification(event, fake_send_email)
 
         self.assertTrue(result["requested"])
         self.assertTrue(result["success"])
         self.assertEqual(len(sent), 1)
+        self.assertIn("New Appointment", sent[0]["subject"])
+        self.assertIn("3:00 PM", sent[0]["subject"])
+        self.assertIn("New appointment booked", sent[0]["body"])
+        self.assertIsNotNone(sent[0]["html"])
+        self.assertIn("New Appointment", sent[0]["html"])
 
     def test_send_email_notification_missing_email(self) -> None:
         event = make_event(email=None, notify_sms=False)
-        sent: list[dict[str, str]] = []
+        sent: list[dict[str, object]] = []
 
-        def fake_send_email(*, to_email: str, subject: str, body: str) -> None:
-            sent.append({"to_email": to_email, "subject": subject, "body": body})
+        def fake_send_email(
+            *, to_email: str, subject: str, body: str, html: str | None = None
+        ) -> None:
+            sent.append(
+                {"to_email": to_email, "subject": subject, "body": body, "html": html}
+            )
 
         result = send_email_notification(event, fake_send_email)
 
@@ -83,11 +96,15 @@ class ChannelFunctionTests(unittest.TestCase):
 class ProcessingTests(unittest.TestCase):
     def test_process_notification_event_both_requested_success(self) -> None:
         event = make_event()
-        sent_emails: list[dict[str, str]] = []
+        sent_emails: list[dict[str, object]] = []
         sent_sms: list[dict[str, str]] = []
 
-        def fake_send_email(*, to_email: str, subject: str, body: str) -> None:
-            sent_emails.append({"to_email": to_email, "subject": subject, "body": body})
+        def fake_send_email(
+            *, to_email: str, subject: str, body: str, html: str | None = None
+        ) -> None:
+            sent_emails.append(
+                {"to_email": to_email, "subject": subject, "body": body, "html": html}
+            )
 
         def fake_send_sms(*, to_phone_e164: str, message: str) -> None:
             sent_sms.append({"to_phone_e164": to_phone_e164, "message": message})
@@ -100,10 +117,14 @@ class ProcessingTests(unittest.TestCase):
 
     def test_process_notification_event_one_channel_fails(self) -> None:
         event = make_event()
-        sent_emails: list[dict[str, str]] = []
+        sent_emails: list[dict[str, object]] = []
 
-        def fake_send_email(*, to_email: str, subject: str, body: str) -> None:
-            sent_emails.append({"to_email": to_email, "subject": subject, "body": body})
+        def fake_send_email(
+            *, to_email: str, subject: str, body: str, html: str | None = None
+        ) -> None:
+            sent_emails.append(
+                {"to_email": to_email, "subject": subject, "body": body, "html": html}
+            )
 
         def fake_send_sms(*, to_phone_e164: str, message: str) -> None:
             raise RuntimeError("sms provider unavailable")

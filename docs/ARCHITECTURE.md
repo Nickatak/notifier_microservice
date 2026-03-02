@@ -93,6 +93,10 @@ Contract rules:
 - If Django writes DB row but publish fails, record this in logs and return an
   application error; outbox pattern is a future hardening step.
 
+## Recipient model
+See `docs/RECIPIENT_MODEL.md`. All notifications go to the portfolio owner
+(`NOTIFICATIONS_OWNER_EMAIL`), not the appointment booker.
+
 ## Security posture
 - Kafka is bound to localhost or private Docker network only.
 - No public ingress to Kafka.
@@ -127,6 +131,28 @@ Contract rules:
    - Move reusable Kafka/provider adapter code into a standalone package.
    - Keep domain/application business rules in service repos.
    - Version shared adapter APIs and event helpers semantically.
+
+## Event-type presentation model
+
+The notifier consumes domain-scoped topics directly (e.g. `appointments.created`)
+and owns the presentation logic for each event type. It is not a generic email
+relay - it knows how to turn each domain event into a human-readable notification.
+
+**Why not a generic `email` topic?**
+That would require an intermediary service to consume domain events, format the
+email, and re-publish to the generic topic. Two hops instead of one, and the
+intermediary is just a template engine with Kafka plumbing on both sides.
+
+**Pattern for adding new event types:**
+1. Producer publishes to a new domain topic (e.g. `billing.invoice_sent`).
+2. Add a JSON Schema contract in the producing repo's `contracts/` directory.
+3. Add a new consumer group in the notifier that subscribes to the topic.
+4. Add a formatter in `notifications/domain/` that maps event fields to
+   subject, plain-text body, and HTML body.
+5. Add the topic + DLQ to env config.
+
+Each event type gets its own formatter - the notifier grows horizontally by
+event type, not by adding intermediary services.
 
 ## Definition of done for architecture phase
 - Topic naming is consistent: `appointments.created`.

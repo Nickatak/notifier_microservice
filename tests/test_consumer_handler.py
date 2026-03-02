@@ -36,7 +36,9 @@ class ConsumerHandlerTests(unittest.TestCase):
         committed: list[int] = []
         rejected: list[int] = []
 
-        def send_email(*, to_email: str, subject: str, body: str) -> None:
+        def send_email(
+            *, to_email: str, subject: str, body: str, html: str | None = None
+        ) -> None:
             return None
 
         def send_sms(*, to_phone_e164: str, message: str) -> None:
@@ -67,7 +69,9 @@ class ConsumerHandlerTests(unittest.TestCase):
         committed: list[int] = []
         rejected: list[int] = []
 
-        def send_email(*, to_email: str, subject: str, body: str) -> None:
+        def send_email(
+            *, to_email: str, subject: str, body: str, html: str | None = None
+        ) -> None:
             return None
 
         def send_sms(*, to_phone_e164: str, message: str) -> None:
@@ -102,7 +106,9 @@ class ConsumerHandlerTests(unittest.TestCase):
         committed: list[int] = []
         rejected: list[int] = []
 
-        def send_email(*, to_email: str, subject: str, body: str) -> None:
+        def send_email(
+            *, to_email: str, subject: str, body: str, html: str | None = None
+        ) -> None:
             return None
 
         def send_sms(*, to_phone_e164: str, message: str) -> None:
@@ -147,7 +153,9 @@ class ConsumerHandlerTests(unittest.TestCase):
         committed: list[int] = []
         rejected: list[int] = []
 
-        def send_email(*, to_email: str, subject: str, body: str) -> None:
+        def send_email(
+            *, to_email: str, subject: str, body: str, html: str | None = None
+        ) -> None:
             return None
 
         def send_sms(*, to_phone_e164: str, message: str) -> None:

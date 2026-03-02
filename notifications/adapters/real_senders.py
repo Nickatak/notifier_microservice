@@ -21,7 +21,9 @@ import urllib.parse
 import urllib.request
 
 
-def send_email_via_mailgun_from_env(*, to_email: str, subject: str, body: str) -> None:
+def send_email_via_mailgun_from_env(
+    *, to_email: str, subject: str, body: str, html: str | None = None
+) -> None:
     """Send email via Mailgun REST API using environment-variable config."""
     api_key = _required_env("MAILGUN_API_KEY")
     domain = _required_env("MAILGUN_DOMAIN")
@@ -31,9 +33,12 @@ def send_email_via_mailgun_from_env(*, to_email: str, subject: str, body: str) -
 
     encoded_domain = urllib.parse.quote(domain, safe="")
     endpoint = f"{base_url}/v3/{encoded_domain}/messages"
-    payload = urllib.parse.urlencode(
-        {"from": from_email, "to": to_email, "subject": subject, "text": body}
-    ).encode("utf-8")
+    data: dict[str, str] = {
+        "from": from_email, "to": to_email, "subject": subject, "text": body
+    }
+    if html:
+        data["html"] = html
+    payload = urllib.parse.urlencode(data).encode("utf-8")
 
     request = urllib.request.Request(endpoint, data=payload, method="POST")
     request.add_header("Authorization", _basic_auth_header("api", api_key))

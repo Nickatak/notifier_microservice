@@ -49,6 +49,62 @@ class MailgunAdapterTests(unittest.TestCase):
         self.assertEqual(payload["text"][0], "World")
         self.assertIn("no-reply@sandbox.example.com", payload["from"][0])
 
+    @mock.patch.dict(
+        os.environ,
+        {
+            "MAILGUN_API_KEY": "key-123",
+            "MAILGUN_DOMAIN": "sandbox.example.com",
+            "MAILGUN_FROM_EMAIL": "No Reply <no-reply@sandbox.example.com>",
+        },
+        clear=True,
+    )
+    @mock.patch("notifications.adapters.real_senders.urllib.request.urlopen")
+    def test_send_email_via_mailgun_includes_html_when_provided(
+        self, urlopen_mock: mock.Mock
+    ) -> None:
+        response = urlopen_mock.return_value.__enter__.return_value
+        response.getcode.return_value = 200
+        response.read.return_value = b'{"id":"<msg-id>","message":"Queued"}'
+
+        send_email_via_mailgun_from_env(
+            to_email="user@example.com",
+            subject="Hello",
+            body="plain text fallback",
+            html="<h1>Hello</h1>",
+        )
+
+        request_obj = urlopen_mock.call_args.args[0]
+        payload = urllib.parse.parse_qs((request_obj.data or b"").decode("utf-8"))
+        self.assertEqual(payload["text"][0], "plain text fallback")
+        self.assertEqual(payload["html"][0], "<h1>Hello</h1>")
+
+    @mock.patch.dict(
+        os.environ,
+        {
+            "MAILGUN_API_KEY": "key-123",
+            "MAILGUN_DOMAIN": "sandbox.example.com",
+            "MAILGUN_FROM_EMAIL": "No Reply <no-reply@sandbox.example.com>",
+        },
+        clear=True,
+    )
+    @mock.patch("notifications.adapters.real_senders.urllib.request.urlopen")
+    def test_send_email_via_mailgun_omits_html_when_none(
+        self, urlopen_mock: mock.Mock
+    ) -> None:
+        response = urlopen_mock.return_value.__enter__.return_value
+        response.getcode.return_value = 200
+        response.read.return_value = b'{"id":"<msg-id>","message":"Queued"}'
+
+        send_email_via_mailgun_from_env(
+            to_email="user@example.com",
+            subject="Hello",
+            body="World",
+        )
+
+        request_obj = urlopen_mock.call_args.args[0]
+        payload = urllib.parse.parse_qs((request_obj.data or b"").decode("utf-8"))
+        self.assertNotIn("html", payload)
+
     @mock.patch.dict(os.environ, {}, clear=True)
     def test_send_email_via_mailgun_from_env_requires_config(self) -> None:
         with self.assertRaises(RuntimeError):
